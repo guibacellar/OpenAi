@@ -34,8 +34,8 @@ HIDDEN_LAYER_ACTIVATIONS = ['tanh', 'relu', 'sigmoid', 'linear', 'softmax']
 HIDDEN_LAYER_TYPE = ['dense', 'dropout']
 MODEL_OPTIMIZER = ['adam', 'rmsprop']
 
-# Define Generic Algorithm Parameters
-MAX_GENERATIONS = 50  # Max Number of Generations to Apply the Generic Algorithm
+# Define Genetic Algorithm Parameters
+MAX_GENERATIONS = 50  # Max Number of Generations to Apply the Genetic Algorithm
 POPULATION_SIZE = 20  # Max Number of Individuals in Each Population
 BEST_CANDIDATES_COUNT = 4  # Number of Best Candidates to Use
 RANDOM_CANDIDATES_COUNT = 2  # Number of Random Candidates (From Entire Population of Generation) to Next Population
@@ -457,7 +457,7 @@ def main():
     ref_worst, ref_best, ref_avg, ref_sum = play_game(ml_model=ml_model, games=100)
     print(f"\tWorst Score:{ref_worst} | Average Score:{ref_avg} | Best Score:{ref_best} | Total Score:{ref_sum}")
 
-    # >>>>>> Generic Algorithm Section <<<<<<
+    # >>>>>> Genetic Algorithm Section <<<<<<
     print("\n********** Genetic Algorithm **********")
     population = generate_first_population_randomly(
         population_size=POPULATION_SIZE
