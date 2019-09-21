@@ -3,17 +3,20 @@ This file contains a variation os my resolution for the Open.Ai CartPole-V1 chal
 Enjoy and Learn
 
 Th3 0bservator
-December, 27, 2018
+December, 01, 2019
 """
 
 
+import os
 import random
 import gym
 import pandas as pd
 import numpy as np
+import tensorflow as tf
+import time
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, InputLayer
-
+from keras import backend as K
 
 # Define Game Commands
 RIGHT_CMD = [0, 1]
@@ -21,7 +24,7 @@ LEFT_CMD = [1, 0]
 
 # Define Reward Config
 START_REWARD = 0
-MIN_REWARD = 100
+MIN_REWARD = 250
 
 # Define Hyperparameters for NN
 HIDDEN_LAYER_COUNT = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
@@ -31,13 +34,13 @@ HIDDEN_LAYER_ACTIVATIONS = ['tanh', 'relu', 'sigmoid', 'linear', 'softmax']
 HIDDEN_LAYER_TYPE = ['dense', 'dropout']
 MODEL_OPTIMIZER = ['adam', 'rmsprop']
 
-# Define Generic Algorithm Parameters
-MAX_GENERATIONS = 10  # Max Number of Generations to Apply the Generic Algorithm
+# Define Genetic Algorithm Parameters
+MAX_GENERATIONS = 50  # Max Number of Generations to Apply the Genetic Algorithm
 POPULATION_SIZE = 20  # Max Number of Individuals in Each Population
 BEST_CANDIDATES_COUNT = 4  # Number of Best Candidates to Use
 RANDOM_CANDIDATES_COUNT = 2  # Number of Random Candidates (From Entire Population of Generation) to Next Population
-OPTIMIZER_MUTATION_PROBABILITY = 0.3  # 30% of Probability to Apply Mutation on Optimizer Parameter
-HIDDEN_LAYER_MUTATION_PROBABILITY = 0.3  # 30% of Probability to Apply Mutation on Hidden Layer Quantity
+OPTIMIZER_MUTATION_PROBABILITY = 0.1  # 10% of Probability to Apply Mutation on Optimizer Parameter
+HIDDEN_LAYER_MUTATION_PROBABILITY = 0.1  # 10% of Probability to Apply Mutation on Hidden Layer Quantity
 
 # Initialize Game Environment
 env = gym.make('CartPole-v1')
@@ -90,6 +93,9 @@ def play_random_games(games=100):
     :return:
     """
 
+    print("[+] Playing Random Games: ", end='', flush=True)
+    run_start = time.time()
+
     # Storage for All Games Movements
     all_movements = []
 
@@ -128,20 +134,69 @@ def play_random_games(games=100):
 
         # Save All Data (Only for the Best Games)
         if episode_reward >= MIN_REWARD:
-            print('.', end='')
             all_movements.extend(current_game_data)
 
     # Create DataFrame
-    dataframe = pd.DataFrame(
+    df = pd.DataFrame(
         all_movements,
         columns=['cart_position', 'cart_velocity', 'pole_angle', 'pole_velocity_at_tip', 'action_to_left', 'action_to_right']
     )
 
     # Convert Action Columns to Integer
-    dataframe['action_to_left'] = dataframe['action_to_left'].astype(int)
-    dataframe['action_to_right'] = dataframe['action_to_right'].astype(int)
+    df['action_to_left'] = df['action_to_left'].astype(int)
+    df['action_to_right'] = df['action_to_right'].astype(int)
 
-    return dataframe
+    run_stop = time.time()
+    print(f"Done > Takes {run_stop - run_start} sec")
+
+    return df
+
+
+def generate_model_from_chromosome(df, chromosome):
+    """
+    Generate and Train Model using Chromosome Spec
+    :param dataframe:
+    :param chromosome:
+    :return:
+    """
+
+    # Define Neural Network Topology
+    m_model = Sequential()
+
+    # Define Input Layer
+    m_model.add(InputLayer(input_shape=(4,)))
+
+    # Add Hidden Layers
+    for layer in chromosome.layer_layout:
+
+        if layer.layer_type == 'dense':
+            m_model.add(
+                Dense(
+                    layer.neurons,
+                    activation=layer.activation
+                )
+            )
+        elif layer.layer_type == 'dropout':
+            m_model.add(
+                Dropout(rate=layer.rate)
+            )
+
+    # Define Output Layer
+    m_model.add(Dense(2, activation='sigmoid'))
+
+    # Compile Neural Network
+    m_model.compile(optimizer=chromosome.optimizer, loss='categorical_crossentropy')
+
+    # Fit Model with Data
+    m_model.fit(
+        df[['cart_position', 'cart_velocity', 'pole_angle', 'pole_velocity_at_tip']],
+        df[['action_to_left', 'action_to_right']],
+        epochs=20,
+        verbose=0
+    )
+
+    # Update Model into Chromosome
+    chromosome.ml_model = m_model
 
 
 def create_random_layer():
@@ -163,14 +218,18 @@ def create_random_layer():
 
     return layer_layout
 
-def generate_random_population(population_size=10):
+
+def generate_first_population_randomly(population_size=10):
     """
     Creates an Initial Random Population
     :param population_size:
     :return:
     """
 
+    print("[+] Creating Initial NN Model Population Randomly: ", end='')
+
     result = []
+    run_start = time.time()
 
     for current in range(population_size):
 
@@ -190,6 +249,9 @@ def generate_random_population(population_size=10):
 
         result.append(chromosome)
 
+    run_stop = time.time()
+    print(f"Done > Takes {run_stop-run_start} sec")
+
     return result
 
 
@@ -198,7 +260,7 @@ def generate_children(mother: Chromosome, father: Chromosome) -> Chromosome:
     Generate a New Children based Mother and Father Genomes
     :param mother: Mother Chromosome
     :param father: Father Chromosome
-    :return:
+    :return: A new Children
     """
 
     # Layer Layout
@@ -218,59 +280,20 @@ def generate_children(mother: Chromosome, father: Chromosome) -> Chromosome:
     chromosome = Chromosome(
         layer_layout=c_layer_layout,
         optimizer=c_optimizer,
-        specie=f"[C {mother.specie} + {father.specie}]"
+        specie=""
     )
 
     return chromosome
 
 
-def generate_model_from_chromosome(dataframe, chromosome):
-    """
-    Generate and Train Model using Chromosome Spec
-    :param dataframe:
-    :param chromosome:
-    :return:
-    """
-
-    # Define Neural Network Topology
-    m_model = Sequential()
-    m_model.add(InputLayer(input_shape=(4, )))
-    for layer in chromosome.layer_layout:
-
-        if layer.layer_type == 'dense':
-            m_model.add(
-                Dense(
-                    layer.neurons,
-                    activation=layer.activation
-                )
-            )
-        elif layer.layer_type == 'dropout':
-            m_model.add(
-                Dropout(rate=layer.rate)
-            )
-
-    m_model.add(Dense(2,  activation='sigmoid'))
-
-    # Compile Neural Network
-    m_model.compile(optimizer=chromosome.optimizer, loss='categorical_crossentropy')
-
-    # Fit Model with Data
-    m_model.fit(
-        dataframe[['cart_position', 'cart_velocity', 'pole_angle', 'pole_velocity_at_tip']],
-        dataframe[['action_to_left', 'action_to_right']],
-        epochs=20,
-        verbose=0
-    )
-
-    chromosome.ml_model = m_model
-
-
-def generate_reference_ml(dataframe):
+def generate_reference_ml(df):
     """
     Train and Generate NN Model
-    :param dataframe:
+    :param df: Dataframe to Training Process
     :return:
     """
+    print("[+] Training Original NN Model: ", end='')
+    run_start = time.time()
 
     # Define Neural Network Topology
     m_model = Sequential()
@@ -284,15 +307,19 @@ def generate_reference_ml(dataframe):
 
     # Fit Model with Data
     m_model.fit(
-        dataframe[['cart_position', 'cart_velocity', 'pole_angle', 'pole_velocity_at_tip']],
-        dataframe[['action_to_left', 'action_to_right']],
-        epochs=20
+        df[['cart_position', 'cart_velocity', 'pole_angle', 'pole_velocity_at_tip']],
+        df[['action_to_left', 'action_to_right']],
+        epochs=20,
+        verbose=0
     )
+
+    run_stop = time.time()
+    print(f"Done > Takes {run_stop-run_start} sec")
 
     return m_model
 
 
-def mutate_chromosome(chromosome: Chromosome) -> Chromosome:
+def mutate_chromosome(chromosome):
     """
     Apply Random Mutations on Chromosome
     :param chromosome: input Chromosome
@@ -338,8 +365,6 @@ def play_game(ml_model, games=100, model_name="Reference Model"):
 
     all_rewards = []
 
-    #print(model_name, end='')
-
     for i_episode in range(games):
 
         # Define Reward Var
@@ -349,7 +374,7 @@ def play_game(ml_model, games=100, model_name="Reference Model"):
         observation = env.reset()
 
         while True:
-            #env.render()
+            # env.render()  << Uncomment to allow the Open.AI Engine do Render the Game
 
             # Predict Next Movement
             current_action_pred = ml_model.predict(observation.reshape(1, 4))
@@ -369,81 +394,135 @@ def play_game(ml_model, games=100, model_name="Reference Model"):
         all_rewards.append(episode_reward)
 
     # Return Worst, Avg, Best and Sum of Rewards
-    worst = np.min(all_rewards)
-    best = np.max(all_rewards)
-    avg = np.average(all_rewards)
-    sum = np.sum(all_rewards)
-    #print(f" >> W:{worst} | AV:{avg} | B:{best} | SUM:{sum}")
-    return worst, best, avg, sum
+    r_worst = np.min(all_rewards)
+    r_best = np.max(all_rewards)
+    r_avg = np.average(all_rewards)
+    r_sum = np.sum(all_rewards)
+
+    return r_worst, r_best, r_avg, r_sum
 
 
-print("[+] Playing Random Games")
-df = play_random_games(games=10000)
-#
-# print("[+] Training Original NN Model")
-# ml_model = generate_reference_ml(df)
-#
-# print("[+] Playing Games with Reference NN Model")
-# ref_worst, ref_best, ref_avg, ref_sum = play_game(ml_model=ml_model, games=100)
+def evolve_population(population):
+    """
+    Evolve and Create the Next Generation of Individuals
+    :param population: Current Population
+    :return: A new population
+    """
 
-print("[+] Creating Initial NN Model Population Randomly")
-population = generate_random_population(
-    population_size=POPULATION_SIZE
-)
-
-
-for current_generation in range(MAX_GENERATIONS):
-    print(f"[+] Generaton {current_generation+1} of {MAX_GENERATIONS}")
-    i = 0
-    generation_results = []
-
-    # Train all Models in Population
-    for individual in population:
-        generate_model_from_chromosome(df, individual)
-
-    for individual in population:
-        # Play the Games
-        # worst, best, avg, sum = play_game(ml_model=model, games=10, model_name=f"Chromosome {i+1} from Generation {current_generation+1}")
-        worst, best, avg, sum = play_game(ml_model=individual.ml_model, games=10, model_name=individual.specie)
-        individual.result_worst = worst
-        individual.result_best = best
-        individual.result_avg = avg
-        individual.result_sum = sum
-
-        # Update Chromosome Results
-        i += 1
-
-    # Sort Candidates by Sum of Results
-    population.sort(key=lambda x: x.result_sum, reverse=True)
-
-    # Compute Generation Metrics
-
-    gen_score_avg = np.average([item.result_avg for item in population])
-    gen_score_min = np.min([item.result_worst for item in population])
-    gen_score_max = np.max([item.result_best for item in population])
-    gen_score_sum = np.sum([item.result_sum for item in population])
-
-    #  TODO: Avg, SUM, Best and Worst of Generation
-    print(f"[+] Generaton {current_generation+1}. MIN={gen_score_min} | AVG={gen_score_avg} | TOP={gen_score_max} | TOTAL={gen_score_sum}")
+    # Clear Graphs from Keras e TensorFlow
+    K.clear_session()
+    tf.reset_default_graph()
 
     # Select N Best Candidates + Y Random Candidates. Kill the Rest of Chromosomes
     parents = []
     parents.extend(population[0:BEST_CANDIDATES_COUNT])  # N Best Candidates
     for rn in range(RANDOM_CANDIDATES_COUNT):
-        parents.append(population[random.randint(0, POPULATION_SIZE-1)])  # Y Random Candidate
+        parents.append(population[random.randint(0, POPULATION_SIZE - 1)])  # Y Random Candidate
 
     # Create New Population Through Crossover
-    population = []
-    population.extend(parents)
+    new_population = []
+    new_population.extend(parents)
 
     # Fill Population with new Random Children with Mutation
-    while len(population) < POPULATION_SIZE:
-        population.append(
+    while len(new_population) < POPULATION_SIZE:
+        parent_a = random.randint(0, len(parents) - 1)
+        parent_b = random.randint(0, len(parents) - 1)
+        while parent_a == parent_b:
+            parent_b = random.randint(0, len(parents) - 1)
+
+        new_population.append(
             mutate_chromosome(
                 generate_children(
-                    mother=parents[random.randint(0, len(parents)-1)],
-                    father=parents[random.randint(0, len(parents)-1)]
+                    mother=parents[parent_a],
+                    father=parents[parent_b]
                 )
             )
         )
 
+    return new_population
+
+
+def main():
+
+    # Play Random (Initial) Games to create Test and Training Data
+    df = play_random_games(games=10000)
+
+    print("\n********** Reference Network Model **********")
+
+    # Creates a Reference NN Model bases on CartPole.py Sample
+    ml_model = generate_reference_ml(df)
+
+    # Play Games with Reference NN Model
+    print("[+] Playing Games with Reference NN Model \t>", end='', flush=True)
+    ref_worst, ref_best, ref_avg, ref_sum = play_game(ml_model=ml_model, games=100)
+    print(f"\tWorst Score:{ref_worst} | Average Score:{ref_avg} | Best Score:{ref_best} | Total Score:{ref_sum}")
+
+    # >>>>>> Genetic Algorithm Section <<<<<<
+    print("\n********** Genetic Algorithm **********")
+    population = generate_first_population_randomly(
+        population_size=POPULATION_SIZE
+    )
+
+    # Run Each Generation
+    for current_generation in range(MAX_GENERATIONS):
+        print(f"[+] Generation {current_generation+1} of {MAX_GENERATIONS}")
+        i = 0
+
+        # >>>>>> Training Phase <<<<<<
+        print(f"\tTraining Models: ", end='', flush=True)
+        training_start = time.time()
+
+        # Train all Models in Population
+        for individual in population:
+            generate_model_from_chromosome(df, individual)
+
+        training_stop = time.time()
+        print(f"Done > Takes {training_stop - training_start} sec")
+
+        # >>>>>> Evaluation Phase <<<<<<
+        print(f"\tEvaluating Population: ", end='', flush=True)
+        evaluation_start = time.time()
+
+        for individual in population:
+
+            # Play the Games
+            score_worst, score_best, score_avg, score_sum = play_game(
+                ml_model=individual.ml_model,
+                games=100,
+                model_name=individual.specie
+            )
+
+            # Update Chromosome Results
+            individual.result_worst = score_worst
+            individual.result_best = score_best
+            individual.result_avg = score_avg
+            individual.result_sum = score_sum
+
+            # Update Indexer
+            i += 1
+
+        evaluation_stop = time.time()
+        print(f"Done > Takes {evaluation_stop - evaluation_start} sec")
+
+        # Sort Candidates by Sum of Results
+        population.sort(key=lambda x: x.result_sum, reverse=True)
+
+        # Compute Generation Metrics
+        gen_score_avg = np.average([item.result_avg for item in population])
+        gen_score_min = np.min([item.result_worst for item in population])
+        gen_score_max = np.max([item.result_best for item in population])
+        gen_score_sum = np.sum([item.result_sum for item in population])
+
+        print(f"\tWorst Score:{gen_score_min} | Average Score:{gen_score_avg} | Best Score:{gen_score_max} | Total Score:{gen_score_sum}")
+
+        # >>>>>> Genetic Selection, Children Creation and Mutation <<<<<<
+        population = evolve_population(population)
+
+
+if __name__ == "__main__":
+
+    # Disable Tensorflow Warning Messages
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+    # Run Program
+    main()
